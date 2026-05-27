@@ -782,7 +782,6 @@ class PolicyDiagnosticsAction extends Action2 {
 
 		content += '## Managed Settings\n\n';
 		try {
-			const managedSettingsUrl = productService.defaultChatAgent?.managedSettingsUrl;
 			const policyData = defaultAccountService.policyData;
 			const enabledPlugins = policyData?.enabledPlugins;
 			const extraKnownMarketplaces = policyData?.extraKnownMarketplaces;
@@ -790,7 +789,6 @@ class PolicyDiagnosticsAction extends Action2 {
 
 			content += '| Property | Value |\n';
 			content += '|----------|-------|\n';
-			content += `| URL | \`${managedSettingsUrl ?? '*not set*'}\` |\n`;
 			const fetchStatus = defaultAccountService.managedSettingsFetchStatus;
 			let fetchStatusDisplay: string;
 			if (fetchStatus === null) {
