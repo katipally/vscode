@@ -233,8 +233,15 @@ export class PluginInstallService implements IPluginInstallService {
 	}
 
 	private _addMarketplaceToConfig(reference: IMarketplaceReference) {
-		const currentValues = this._configurationService.getValue<unknown[]>(ChatConfiguration.PluginMarketplaces) ?? [];
-		const existingRefs = parseMarketplaceReferences(currentValues);
+		const inspected = this._configurationService.inspect<unknown[]>(ChatConfiguration.PluginMarketplaces);
+		const currentValues = [
+			...(inspected.defaultValue ?? []),
+			...(inspected.userValue ?? []),
+		];
+		const existingRefs = parseMarketplaceReferences([
+			...currentValues,
+			...(inspected.policyValue ?? []),
+		]);
 		if (existingRefs.some(r => r.canonicalId === reference.canonicalId)) {
 			return;
 		}

@@ -184,12 +184,20 @@ export class PluginUrlHandler extends Disposable implements IWorkbenchContributi
 			return true;
 		}
 
-		const existing = this._configurationService.getValue<string[]>(ChatConfiguration.PluginMarketplaces) ?? [];
-		const existingRefs = parseMarketplaceReferences(existing);
+		const inspected = this._configurationService.inspect<unknown[]>(ChatConfiguration.PluginMarketplaces);
+		const existingRefs = parseMarketplaceReferences([
+			...(inspected.defaultValue ?? []),
+			...(inspected.userValue ?? []),
+			...(inspected.policyValue ?? []),
+		]);
 		if (!existingRefs.some(e => e.canonicalId === ref.canonicalId)) {
 			await this._configurationService.updateValue(
 				ChatConfiguration.PluginMarketplaces,
-				[...existing, refValue],
+				[
+					...(inspected.defaultValue ?? []),
+					...(inspected.userValue ?? []),
+					refValue,
+				],
 				ConfigurationTarget.USER,
 			);
 		}

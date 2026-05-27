@@ -65,6 +65,7 @@ const enum DefaultAccountStatus {
 const CONTEXT_DEFAULT_ACCOUNT_STATE = new RawContextKey<string>('defaultAccountStatus', DefaultAccountStatus.Uninitialized);
 const CACHED_POLICY_DATA_KEY = 'defaultAccount.cachedPolicyData';
 const ACCOUNT_DATA_POLL_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
+const MANAGED_SETTINGS_REQUEST_TIMEOUT_MS = 5000;
 
 interface ITokenEntitlementsResponse {
 	token: string;
@@ -102,8 +103,7 @@ function retryAfterFromHeaders(headers: Record<string, string | string[] | undef
 }
 
 /**
- * Response shape from `/copilot_internal/managed_settings`. See ADR-002
- * (enterprise-managed-settings-for-copilot-clients): the endpoint returns
+ * Response shape from `/copilot_internal/managed_settings`. The endpoint returns
  * `.github/copilot/settings.json` content from the enterprise's source org.
  * An empty response (`{}`) is success and means "no policy file present".
  *
@@ -900,36 +900,35 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 	private async requestManagedSettings(sessions: AuthenticationSession[]): Promise<Partial<IPolicyData> | undefined> {
 		const managedSettingsUrl = this.getManagedSettingsUrl();
 		if (!managedSettingsUrl) {
-			this.logService.debug('[DefaultAccount] No managed settings URL configured; skipping ADR-002 enterprise policy fetch');
+			this.logService.debug('[DefaultAccount] No managed settings URL configured; skipping enterprise policy fetch');
 			return undefined;
 		}
 
-		this.logService.debug('[DefaultAccount] Fetching managed settings (ADR-002) from:', managedSettingsUrl);
-		const response = await this.request(managedSettingsUrl, 'GET', undefined, sessions, CancellationToken.None, 'defaultAccount.managedSettings');
+		this.logService.debug('[DefaultAccount] Fetching managed settings from:', managedSettingsUrl);
+		const response = await this.request(managedSettingsUrl, 'GET', undefined, sessions, CancellationToken.None, 'defaultAccount.managedSettings', MANAGED_SETTINGS_REQUEST_TIMEOUT_MS);
 		if (!response) {
 			this.logService.debug('[DefaultAccount] Managed settings fetch returned no response (network error, all sessions rejected, or active rate-limit backoff); falling back to local-only policy');
 			return undefined;
 		}
 
-		// ADR-002 section 3 "API failure behavior": clients must fall back to local
-		// settings only and continue operating normally on any non-2xx. Treat
-		// every non-success status the same — silent fallback, no policy.
+		// Any non-2xx response means "fall back to local settings only and continue
+		// operating normally" — silent fallback, no policy.
 		if (!isSuccess(response)) {
-			this.logService.warn(`[DefaultAccount] Managed settings fetch returned non-success status ${response.res.statusCode}; falling back to local-only policy (ADR-002 section 3)`);
+			this.logService.warn(`[DefaultAccount] Managed settings fetch returned non-success status ${response.res.statusCode}; falling back to local-only policy`);
 			return undefined;
 		}
 
 		try {
 			const data = await asJson<IManagedSettingsResponse>(response);
 			const adapted = adaptManagedSettings(data ?? {});
-			// ADR-002 section 3: empty response (`{}`) is success and means "no policy
-			// file present". Log structured outcome at debug so a developer
-			// using Policy Diagnostics has a clear breadcrumb.
+			// An empty response (`{}`) is a successful "no policy file present" signal.
+			// Log a structured outcome at debug so a developer using Policy
+			// Diagnostics has a clear breadcrumb.
 			const pluginCount = adapted.enabledPlugins ? Object.keys(adapted.enabledPlugins).length : 0;
 			const marketplaceCount = adapted.extraKnownMarketplaces?.length ?? 0;
 			const strictSet = adapted.strictKnownMarketplaces !== undefined;
 			if (pluginCount === 0 && marketplaceCount === 0 && !strictSet) {
-				this.logService.debug('[DefaultAccount] Managed settings fetched (empty response — no enterprise policy file present per ADR-002 section 3)');
+				this.logService.debug('[DefaultAccount] Managed settings fetched (empty response — no enterprise policy file present)');
 			} else {
 				this.logService.info(`[DefaultAccount] Managed settings applied: ${pluginCount} enabled plugins, ${marketplaceCount} extra marketplaces, strictKnownMarketplaces=${adapted.strictKnownMarketplaces ?? 'unset'}`);
 			}
@@ -967,16 +966,16 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 
 	private _rateLimitBackoffUntil = 0;
 
-	private async request(url: string, type: 'GET', body: undefined, sessions: AuthenticationSession[], token: CancellationToken, callSite: string): Promise<IRequestContext | undefined>;
-	private async request(url: string, type: 'POST', body: object, sessions: AuthenticationSession[], token: CancellationToken, callSite: string): Promise<IRequestContext | undefined>;
-	private async request(url: string, type: 'GET' | 'POST', body: object | undefined, sessions: AuthenticationSession[], token: CancellationToken, callSite: string): Promise<IRequestContext | undefined> {
+	private async request(url: string, type: 'GET', body: undefined, sessions: AuthenticationSession[], token: CancellationToken, callSite: string, requestTimeoutMs?: number): Promise<IRequestContext | undefined>;
+	private async request(url: string, type: 'POST', body: object, sessions: AuthenticationSession[], token: CancellationToken, callSite: string, requestTimeoutMs?: number): Promise<IRequestContext | undefined>;
+	private async request(url: string, type: 'GET' | 'POST', body: object | undefined, sessions: AuthenticationSession[], token: CancellationToken, callSite: string, requestTimeoutMs?: number): Promise<IRequestContext | undefined> {
 		// Rate-limit backoff: when any prior `/copilot_internal/*` request was
 		// throttled (429 or 403 + `X-RateLimit-Remaining: 0`), every subsequent
 		// request is short-circuited until the parsed `Retry-After` elapses.
 		// All endpoints called from here share the same host and bearer token,
 		// so backing off the bucket as a whole avoids piling on a server that
-		// has already asked us to slow down. See ADR-002 section 3 "API failure
-		// behavior" and `githubRepoFetcher.ts` for the public-API analogue.
+		// has already asked us to slow down. See `githubRepoFetcher.ts` for the
+		// public-API analogue.
 		if (Date.now() < this._rateLimitBackoffUntil) {
 			const remainingSec = Math.ceil((this._rateLimitBackoffUntil - Date.now()) / 1000);
 			this.logService.debug(`[DefaultAccount] Skipping request to ${url} — rate-limit backoff active for ${remainingSec}s more`);
@@ -996,6 +995,7 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 					url,
 					data: type === 'POST' ? JSON.stringify(body) : undefined,
 					disableCache: true,
+					timeout: requestTimeoutMs,
 					headers: {
 						'Authorization': `Bearer ${session.accessToken}`
 					},

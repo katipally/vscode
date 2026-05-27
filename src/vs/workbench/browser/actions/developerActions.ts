@@ -780,11 +780,11 @@ class PolicyDiagnosticsAction extends Action2 {
 			content += `*Error retrieving account policy gate info: ${error}*\n\n`;
 		}
 
-		// ADR-002: Enterprise Managed Settings. Surface the resolved endpoint
-		// and the three policy-data fields delivered via `/copilot_internal/managed_settings`
+		// Enterprise managed settings: surface the resolved endpoint and the
+		// three policy-data fields delivered via `/copilot_internal/managed_settings`
 		// so admins debugging an enterprise rollout don't have to grep the raw
 		// `policyData` blob above.
-		content += '## Managed Settings (ADR-002)\n\n';
+		content += '## Enterprise Managed Settings\n\n';
 		try {
 			const managedSettingsUrl = productService.defaultChatAgent?.managedSettingsUrl;
 			const policyData = defaultAccountService.policyData;
@@ -796,7 +796,7 @@ class PolicyDiagnosticsAction extends Action2 {
 
 			content += '| Property | Value |\n';
 			content += '|----------|-------|\n';
-			content += `| Configured URL (non-enterprise) | \`${managedSettingsUrl ?? '*not set in product.json*'}\` |\n`;
+			content += `| Default URL | \`${managedSettingsUrl ?? '*not set in product.json*'}\` |\n`;
 			content += `| Note | Enterprise accounts override the URL with \`<enterprise>/copilot_internal/managed_settings\` at fetch time. |\n`;
 			content += `| Fetch outcome (this session) | ${policyData ? 'See policyData fields below; cache refreshes hourly.' : 'No account-side policy data resolved yet.'} |\n`;
 			content += `| \`enabledPlugins\` count | ${pluginCount} ${pluginCount > 0 ? '(merged into `chat.pluginLocations` via `ChatEnabledPlugins` policy)' : '(no enterprise-enabled plugins)'} |\n`;
@@ -824,7 +824,7 @@ class PolicyDiagnosticsAction extends Action2 {
 
 			content += '**Legend**\n\n';
 			content += '- Delivered by `AccountPolicyService` via the existing `policy.value(policyData)` callback flow.\n';
-			content += '- Fetched in `DefaultAccountService.requestManagedSettings` (5s timeout, silent fallback on failure per ADR-002 section 3).\n';
+			content += '- Fetched in `DefaultAccountService.requestManagedSettings` (5s timeout, silent fallback on failure).\n';
 			content += '- All `/copilot_internal/*` calls share a `Retry-After`-aware backoff so a 429 on one path pauses the others too.\n\n';
 		} catch (error) {
 			content += `*Error rendering managed settings diagnostics: ${error}*\n\n`;

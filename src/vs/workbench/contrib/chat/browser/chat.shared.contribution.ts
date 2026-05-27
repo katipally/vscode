@@ -909,7 +909,7 @@ configurationRegistry.registerConfiguration({
 		},
 		[ChatConfiguration.StrictMarketplaces]: {
 			type: 'boolean',
-			description: nls.localize('chat.plugins.strictMarketplaces', "When enabled, only marketplaces listed in {0} are trusted. Plugins from any other marketplace will not load.", `\`#${ChatConfiguration.PluginMarketplaces}#\``),
+			markdownDescription: nls.localize('chat.plugins.strictMarketplaces', "When enabled, only marketplaces listed in {0} are trusted. Plugins from any other marketplace will not load.", `\`#${ChatConfiguration.PluginMarketplaces}#\``),
 			default: false,
 			restricted: true,
 			scope: ConfigurationScope.APPLICATION,

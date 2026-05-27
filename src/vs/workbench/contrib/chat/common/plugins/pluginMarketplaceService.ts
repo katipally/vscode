@@ -411,12 +411,11 @@ export class PluginMarketplaceService extends Disposable implements IPluginMarke
 			return [];
 		}
 
-		// Read user + policy + default values separately and dedup-concat so
+		// Read default + user + policy values separately and dedup-concat so
 		// enterprise policy entries (via the `ChatPluginMarketplaces` policy)
 		// are added alongside user-configured entries AND the built-in
 		// marketplace defaults (e.g. `github/copilot-plugins`). `getValue()`
-		// alone would surface only the policy value when the policy is set
-		// — see ADR-002.
+		// alone would surface only the policy value when the policy is set.
 		const inspected = this._configurationService.inspect<unknown[]>(ChatConfiguration.PluginMarketplaces);
 		const seen = new Set<string>();
 		const configuredRefs: unknown[] = [];

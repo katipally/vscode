@@ -504,13 +504,13 @@ export class ConfiguredAgentPluginDiscovery extends AbstractAgentPluginDiscovery
 		@ILogService logService: ILogService,
 	) {
 		super(fileService, pathService, logService, workspaceContextService);
-		// Read user + policy values separately and shallow-merge so enterprise
-		// policy entries (plugin-ID-keyed via the `ChatEnabledPlugins` policy)
-		// are added on top of the user's path-keyed entries. `getValue()`
-		// alone would surface only the policy value when the policy is set —
-		// see ADR-002 implementation notes. `defaultValue` is folded in for
-		// symmetry with the marketplace consumer; the current schema default
-		// is `{}` but extension code may register richer defaults later.
+		// Read default + user + policy values separately and shallow-merge so
+		// enterprise policy entries (plugin-ID-keyed via the `ChatEnabledPlugins`
+		// policy) are added on top of the user's path-keyed entries. `getValue()`
+		// alone would surface only the policy value when the policy is set.
+		// `defaultValue` is folded in for symmetry with the marketplace consumer;
+		// the current schema default is `{}` but extension code may register
+		// richer defaults later.
 		this._pluginLocationsConfig = observableFromEvent(this,
 			Event.filter(this._configurationService.onDidChangeConfiguration, e => e.affectsConfiguration(ChatConfiguration.PluginLocations)),
 			() => {

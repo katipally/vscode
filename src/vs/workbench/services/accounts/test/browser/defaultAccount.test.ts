@@ -11,7 +11,7 @@ suite('DefaultAccount.adaptManagedSettings', () => {
 
 	ensureNoDisposablesAreLeakedInTestSuite();
 
-	test('empty response yields all-undefined partial (no policy file case from ADR-002 section 3)', () => {
+	test('empty response yields all-undefined partial (no enterprise policy file present)', () => {
 		assert.deepStrictEqual(adaptManagedSettings({}), {
 			enabledPlugins: undefined,
 			extraKnownMarketplaces: undefined,

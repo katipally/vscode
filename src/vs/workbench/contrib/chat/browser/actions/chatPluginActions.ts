@@ -12,6 +12,7 @@ import { IConfigurationService } from '../../../../../platform/configuration/com
 import { ContextKeyExpr } from '../../../../../platform/contextkey/common/contextkey.js';
 import { IFileService } from '../../../../../platform/files/common/files.js';
 import { ServicesAccessor } from '../../../../../platform/instantiation/common/instantiation.js';
+import { INotificationService, Severity } from '../../../../../platform/notification/common/notification.js';
 import { IQuickInputService, IQuickPickItem } from '../../../../../platform/quickinput/common/quickInput.js';
 import { IExtensionsWorkbenchService } from '../../../extensions/common/extensions.js';
 import { ChatContextKeys } from '../../common/actions/chatContextKeys.js';
@@ -139,6 +140,27 @@ class InstallFromSourceAction extends Action2 {
 
 interface IMarketplaceQuickPickItem extends IQuickPickItem {
 	readonly reference: IMarketplaceReference;
+	readonly managedByPolicy: boolean;
+}
+
+function readConfiguredMarketplaces(configurationService: IConfigurationService) {
+	const inspected = configurationService.inspect<unknown[]>(ChatConfiguration.PluginMarketplaces);
+	const defaultValues = inspected.defaultValue ?? [];
+	const userValues = inspected.userValue ?? [];
+	const policyValues = inspected.policyValue ?? [];
+
+	return {
+		effectiveValues: [
+			...defaultValues,
+			...userValues,
+			...policyValues,
+		],
+		editableValues: [
+			...defaultValues,
+			...userValues,
+		],
+		policyCanonicalIds: new Set(parseMarketplaceReferences(policyValues).map(reference => reference.canonicalId)),
+	};
 }
 
 class ManagePluginMarketplacesAction extends Action2 {
@@ -172,9 +194,10 @@ class ManagePluginMarketplacesAction extends Action2 {
 		const extensionsWorkbenchService = accessor.get(IExtensionsWorkbenchService);
 		const commandService = accessor.get(ICommandService);
 		const fileService = accessor.get(IFileService);
+		const notificationService = accessor.get(INotificationService);
 
-		const configuredRefs = configurationService.getValue<unknown[]>(ChatConfiguration.PluginMarketplaces) ?? [];
-		const refs = parseMarketplaceReferences(configuredRefs);
+		const { effectiveValues, editableValues, policyCanonicalIds } = readConfiguredMarketplaces(configurationService);
+		const refs = parseMarketplaceReferences(effectiveValues);
 
 		if (refs.length === 0) {
 			quickInputService.pick([], { placeHolder: localize('noMarketplaces', "No plugin marketplaces configured") });
@@ -186,8 +209,11 @@ class ManagePluginMarketplacesAction extends Action2 {
 			label: ref.displayLabel,
 			description: ref.kind === MarketplaceReferenceKind.LocalFileUri
 				? localize('localMarketplace', "Local")
-				: ref.cloneUrl,
+				: policyCanonicalIds.has(ref.canonicalId)
+					? localize('managedMarketplace', "{0} (managed by enterprise policy)", ref.cloneUrl)
+					: ref.cloneUrl,
 			reference: ref,
+			managedByPolicy: policyCanonicalIds.has(ref.canonicalId),
 		}));
 
 		const selected = await quickInputService.pick(items, {
@@ -230,8 +256,15 @@ class ManagePluginMarketplacesAction extends Action2 {
 				await commandService.executeCommand('revealFileInOS', repoUri);
 				break;
 			case 'removeMarketplace': {
-				const currentValues = configurationService.getValue<unknown[]>(ChatConfiguration.PluginMarketplaces) ?? [];
-				const updated = currentValues.filter(v => typeof v === 'string' && v.trim() !== ref.rawValue);
+				if (selected.managedByPolicy) {
+					notificationService.notify({
+						severity: Severity.Warning,
+						message: localize('removeManagedMarketplace', "Enterprise policy manages '{0}', so it can't be removed here.", ref.displayLabel),
+					});
+					return;
+				}
+
+				const updated = editableValues.filter(v => typeof v === 'string' && v.trim() !== ref.rawValue);
 				await configurationService.updateValue(ChatConfiguration.PluginMarketplaces, updated);
 				break;
 			}
