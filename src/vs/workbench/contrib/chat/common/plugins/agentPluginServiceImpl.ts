@@ -10,7 +10,8 @@ import { untildify } from '../../../../../base/common/labels.js';
 import { Disposable, DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { ResourceSet } from '../../../../../base/common/map.js';
 import { equals } from '../../../../../base/common/objects.js';
-import { autorun, derived, derivedOpts, IObservable, ObservablePromise, observableSignal, observableValue } from '../../../../../base/common/observable.js';
+import { Event } from '../../../../../base/common/event.js';
+import { autorun, derived, derivedOpts, IObservable, observableFromEvent, ObservablePromise, observableSignal, observableValue } from '../../../../../base/common/observable.js';
 import {
 	posix,
 	win32
@@ -503,7 +504,20 @@ export class ConfiguredAgentPluginDiscovery extends AbstractAgentPluginDiscovery
 		@ILogService logService: ILogService,
 	) {
 		super(fileService, pathService, logService, workspaceContextService);
-		this._pluginLocationsConfig = observableConfigValue<Record<string, boolean>>(ChatConfiguration.PluginLocations, {}, _configurationService);
+		// Read user + policy values separately and shallow-merge so enterprise
+		// policy entries (plugin-ID-keyed via the `ChatEnabledPlugins` policy)
+		// are added on top of the user's path-keyed entries. `getValue()`
+		// alone would surface only the policy value when the policy is set —
+		// see ADR-002 implementation notes. `defaultValue` is folded in for
+		// symmetry with the marketplace consumer; the current schema default
+		// is `{}` but extension code may register richer defaults later.
+		this._pluginLocationsConfig = observableFromEvent(this,
+			Event.filter(this._configurationService.onDidChangeConfiguration, e => e.affectsConfiguration(ChatConfiguration.PluginLocations)),
+			() => {
+				const inspected = this._configurationService.inspect<Record<string, boolean>>(ChatConfiguration.PluginLocations);
+				return { ...inspected.defaultValue, ...inspected.userValue, ...inspected.policyValue };
+			},
+		);
 	}
 
 	public override start(enablementModel: IEnablementModel): void {
@@ -564,8 +578,17 @@ export class ConfiguredAgentPluginDiscovery extends AbstractAgentPluginDiscovery
 	 * - Absolute paths (used directly)
 	 * - Tilde paths (expanded to user home directory)
 	 * - Relative paths (resolved against each workspace folder)
+	 * - Plugin-ID form (`<plugin>@<marketplace>`) used when this setting is
+	 *   populated via the `ChatEnabledPlugins` enterprise policy. Resolved to
+	 *   the Copilot CLI install convention `~/.copilot/installed-plugins/<marketplace>/<plugin>/`.
 	 */
 	private _resolvePluginPath(path: string, userHome: string): URI[] {
+		const idMatch = path.match(/^([^@/\\~]+)@([^@/\\~]+)$/);
+		if (idMatch) {
+			const [, plugin, marketplace] = idMatch;
+			return [URI.file(`${userHome}/.copilot/installed-plugins/${marketplace}/${plugin}`)];
+		}
+
 		if (path.startsWith('~')) {
 			path = untildify(path, userHome);
 		}

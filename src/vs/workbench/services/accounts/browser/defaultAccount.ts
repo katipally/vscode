@@ -51,6 +51,7 @@ interface IDefaultAccountConfig {
 	readonly tokenEntitlementUrl: string;
 	readonly entitlementUrl: string;
 	readonly mcpRegistryDataUrl: string;
+	readonly managedSettingsUrl: string;
 }
 
 export const DEFAULT_ACCOUNT_SIGN_IN_COMMAND = 'workbench.actions.accounts.signIn';
@@ -67,6 +68,88 @@ const ACCOUNT_DATA_POLL_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 
 interface ITokenEntitlementsResponse {
 	token: string;
+}
+
+/**
+ * Reads a header value tolerating array-shaped values and case-insensitive
+ * lookups. Mirrors the small helper in `githubRepoFetcher.ts`; duplicated
+ * here because the contrib-layer module sits above this services-layer file.
+ */
+function readHeader(headers: Record<string, string | string[] | undefined> | undefined, name: string): string | undefined {
+	if (!headers) {
+		return undefined;
+	}
+	const value = headers[name] ?? headers[name.toLowerCase()];
+	if (Array.isArray(value)) {
+		return value[0];
+	}
+	return value;
+}
+
+/**
+ * Parses the `Retry-After` header as a number of seconds. Returns undefined
+ * if absent or unparseable. The HTTP-date form is intentionally not parsed
+ * — `/copilot_internal/*` endpoints use numeric seconds, matching the public
+ * GitHub API.
+ */
+function retryAfterFromHeaders(headers: Record<string, string | string[] | undefined> | undefined): number | undefined {
+	const value = readHeader(headers, 'retry-after');
+	if (!value) {
+		return undefined;
+	}
+	const parsed = parseInt(value, 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/**
+ * Response shape from `/copilot_internal/managed_settings`. See ADR-002
+ * (enterprise-managed-settings-for-copilot-clients): the endpoint returns
+ * `.github/copilot/settings.json` content from the enterprise's source org.
+ * An empty response (`{}`) is success and means "no policy file present".
+ *
+ * Exported for unit-testing the {@link adaptManagedSettings} shape transformation.
+ */
+export interface IManagedSettingsResponse {
+	readonly enabledPlugins?: Record<string, boolean>;
+	readonly extraKnownMarketplaces?: Record<string, {
+		readonly source:
+		| { readonly source: 'github'; readonly repo: string; readonly ref?: string }
+		| { readonly source: 'git'; readonly url: string; readonly ref?: string };
+	}>;
+	readonly strictKnownMarketplaces?: boolean;
+}
+
+/**
+ * Adapt the `managed_settings` API response into the slice of {@link IPolicyData}
+ * that the policy framework consumes. `extraKnownMarketplaces` is flattened from
+ * the API's `Record<id, { source }>` shape to the existing
+ * `chat.plugins.marketplaces` string-array shape (`<owner>/<repo>[#<ref>]` for
+ * GitHub sources, `<url>[#<ref>]` for Git sources), deduplicated.
+ *
+ * Exported for unit-testing the shape transformation independently of network
+ * I/O. Not part of the public service surface.
+ */
+export function adaptManagedSettings(response: IManagedSettingsResponse): Partial<IPolicyData> {
+	let extraKnownMarketplaces: readonly string[] | undefined;
+	if (response.extraKnownMarketplaces) {
+		const seen = new Set<string>();
+		const flattened: string[] = [];
+		for (const entry of Object.values(response.extraKnownMarketplaces)) {
+			const ref = entry.source.source === 'github'
+				? `${entry.source.repo}${entry.source.ref ? `#${entry.source.ref}` : ''}`
+				: `${entry.source.url}${entry.source.ref ? `#${entry.source.ref}` : ''}`;
+			if (!seen.has(ref)) {
+				seen.add(ref);
+				flattened.push(ref);
+			}
+		}
+		extraKnownMarketplaces = flattened;
+	}
+	return {
+		enabledPlugins: response.enabledPlugins,
+		extraKnownMarketplaces,
+		strictKnownMarketplaces: response.strictKnownMarketplaces,
+	};
 }
 
 interface IMcpRegistryProvider {
@@ -107,6 +190,7 @@ function toDefaultAccountConfig(defaultChatAgent: IDefaultChatAgent): IDefaultAc
 		entitlementUrl: defaultChatAgent.entitlementUrl,
 		tokenEntitlementUrl: defaultChatAgent.tokenEntitlementUrl,
 		mcpRegistryDataUrl: defaultChatAgent.mcpRegistryDataUrl,
+		managedSettingsUrl: defaultChatAgent.managedSettingsUrl,
 	};
 }
 
@@ -214,6 +298,7 @@ interface IAccountPolicyData {
 	readonly entitlementsFetchedAt?: number;
 	readonly tokenEntitlementsFetchedAt?: number;
 	readonly mcpRegistryDataFetchedAt?: number;
+	readonly managedSettingsFetchedAt?: number;
 }
 
 interface ICachedAccountData {
@@ -547,9 +632,15 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 			const entitlementsResult = await this.getEntitlements(sessions, accountPolicyData, options);
 			const entitlementsData = entitlementsResult?.data;
 			const entitlementsFetchedAt = entitlementsResult?.fetchedAt;
-			const tokenEntitlementsResult = entitlementsData?.chat_enabled ? await this.getTokenEntitlements(sessions, accountPolicyData, options) : undefined;
+			const [tokenEntitlementsResult, managedSettingsResult] = entitlementsData?.chat_enabled
+				? await Promise.all([
+					this.getTokenEntitlements(sessions, accountPolicyData, options),
+					this.getManagedSettings(sessions, accountPolicyData, options),
+				])
+				: [undefined, undefined];
 
 			const tokenEntitlementsFetchedAt: number | undefined = tokenEntitlementsResult?.fetchedAt;
+			const managedSettingsFetchedAt: number | undefined = managedSettingsResult?.fetchedAt;
 			let mcpRegistryDataFetchedAt: number | undefined;
 			let policyData: Mutable<IPolicyData> | undefined = accountPolicyData?.policyData ? { ...accountPolicyData.policyData } : undefined;
 			if (tokenEntitlementsResult?.data) {
@@ -569,6 +660,13 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 					policyData.mcpAccess = undefined;
 				}
 			}
+			if (managedSettingsResult?.data) {
+				const managedData = managedSettingsResult.data;
+				policyData = policyData ?? {};
+				policyData.enabledPlugins = managedData.enabledPlugins;
+				policyData.extraKnownMarketplaces = managedData.extraKnownMarketplaces;
+				policyData.strictKnownMarketplaces = managedData.strictKnownMarketplaces;
+			}
 
 			const defaultAccount: IDefaultAccount = {
 				authenticationProvider,
@@ -579,7 +677,7 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 			};
 			this.logService.debug('[DefaultAccount] Successfully created default account for provider:', authenticationProvider.id);
 			const accountPolicyResult: IAccountPolicyData | null = policyData || entitlementsFetchedAt
-				? { accountId, policyData: policyData ?? {}, entitlementsFetchedAt, tokenEntitlementsFetchedAt, mcpRegistryDataFetchedAt }
+				? { accountId, policyData: policyData ?? {}, entitlementsFetchedAt, tokenEntitlementsFetchedAt, mcpRegistryDataFetchedAt, managedSettingsFetchedAt }
 				: null;
 			return {
 				defaultAccount,
@@ -783,9 +881,108 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 		}
 	}
 
+	private async getManagedSettings(sessions: AuthenticationSession[], accountPolicyData: IAccountPolicyData | undefined, options?: { forceRefresh?: boolean }): Promise<{ data: Partial<IPolicyData> | undefined; fetchedAt: number }> {
+		if (!options?.forceRefresh && accountPolicyData?.managedSettingsFetchedAt && !this.isDataStale(accountPolicyData.managedSettingsFetchedAt)) {
+			this.logService.debug('[DefaultAccount] Using last fetched managed settings data');
+			return {
+				data: {
+					enabledPlugins: accountPolicyData.policyData.enabledPlugins,
+					extraKnownMarketplaces: accountPolicyData.policyData.extraKnownMarketplaces,
+					strictKnownMarketplaces: accountPolicyData.policyData.strictKnownMarketplaces,
+				},
+				fetchedAt: accountPolicyData.managedSettingsFetchedAt,
+			};
+		}
+		const data = await this.requestManagedSettings(sessions);
+		return { data, fetchedAt: Date.now() };
+	}
+
+	private async requestManagedSettings(sessions: AuthenticationSession[]): Promise<Partial<IPolicyData> | undefined> {
+		const managedSettingsUrl = this.getManagedSettingsUrl();
+		if (!managedSettingsUrl) {
+			this.logService.debug('[DefaultAccount] No managed settings URL configured; skipping ADR-002 enterprise policy fetch');
+			return undefined;
+		}
+
+		this.logService.debug('[DefaultAccount] Fetching managed settings (ADR-002) from:', managedSettingsUrl);
+		const response = await this.request(managedSettingsUrl, 'GET', undefined, sessions, CancellationToken.None, 'defaultAccount.managedSettings');
+		if (!response) {
+			this.logService.debug('[DefaultAccount] Managed settings fetch returned no response (network error, all sessions rejected, or active rate-limit backoff); falling back to local-only policy');
+			return undefined;
+		}
+
+		// ADR-002 section 3 "API failure behavior": clients must fall back to local
+		// settings only and continue operating normally on any non-2xx. Treat
+		// every non-success status the same — silent fallback, no policy.
+		if (!isSuccess(response)) {
+			this.logService.warn(`[DefaultAccount] Managed settings fetch returned non-success status ${response.res.statusCode}; falling back to local-only policy (ADR-002 section 3)`);
+			return undefined;
+		}
+
+		try {
+			const data = await asJson<IManagedSettingsResponse>(response);
+			const adapted = adaptManagedSettings(data ?? {});
+			// ADR-002 section 3: empty response (`{}`) is success and means "no policy
+			// file present". Log structured outcome at debug so a developer
+			// using Policy Diagnostics has a clear breadcrumb.
+			const pluginCount = adapted.enabledPlugins ? Object.keys(adapted.enabledPlugins).length : 0;
+			const marketplaceCount = adapted.extraKnownMarketplaces?.length ?? 0;
+			const strictSet = adapted.strictKnownMarketplaces !== undefined;
+			if (pluginCount === 0 && marketplaceCount === 0 && !strictSet) {
+				this.logService.debug('[DefaultAccount] Managed settings fetched (empty response — no enterprise policy file present per ADR-002 section 3)');
+			} else {
+				this.logService.info(`[DefaultAccount] Managed settings applied: ${pluginCount} enabled plugins, ${marketplaceCount} extra marketplaces, strictKnownMarketplaces=${adapted.strictKnownMarketplaces ?? 'unset'}`);
+			}
+			return adapted;
+		} catch (error) {
+			this.logService.error('[DefaultAccount] Failed to parse managed settings response', getErrorMessage(error));
+			return undefined;
+		}
+	}
+
+	/**
+	 * Detects a rate-limited GitHub response. Mirrors the public-API check in
+	 * `githubRepoFetcher.ts`:
+	 * - Canonical `429 Too Many Requests`.
+	 * - Primary quota exhaustion: `403` with `X-RateLimit-Remaining: 0`.
+	 * - Secondary throttling: GitHub omits `X-RateLimit-Remaining` but sets
+	 *   `Retry-After` (on a non-2xx response). We treat any non-success status
+	 *   that carries `Retry-After` as a back-off signal.
+	 */
+	private isRateLimited(response: IRequestContext): boolean {
+		const status = response.res.statusCode;
+		if (status === 429) {
+			return true;
+		}
+		if (status === 403 && readHeader(response.res.headers, 'x-ratelimit-remaining') === '0') {
+			return true;
+		}
+		// Secondary rate limit: the server explicitly asks the client to wait,
+		// regardless of which non-2xx code it returned with.
+		if (!isSuccess(response) && readHeader(response.res.headers, 'retry-after') !== undefined) {
+			return true;
+		}
+		return false;
+	}
+
+	private _rateLimitBackoffUntil = 0;
+
 	private async request(url: string, type: 'GET', body: undefined, sessions: AuthenticationSession[], token: CancellationToken, callSite: string): Promise<IRequestContext | undefined>;
 	private async request(url: string, type: 'POST', body: object, sessions: AuthenticationSession[], token: CancellationToken, callSite: string): Promise<IRequestContext | undefined>;
 	private async request(url: string, type: 'GET' | 'POST', body: object | undefined, sessions: AuthenticationSession[], token: CancellationToken, callSite: string): Promise<IRequestContext | undefined> {
+		// Rate-limit backoff: when any prior `/copilot_internal/*` request was
+		// throttled (429 or 403 + `X-RateLimit-Remaining: 0`), every subsequent
+		// request is short-circuited until the parsed `Retry-After` elapses.
+		// All endpoints called from here share the same host and bearer token,
+		// so backing off the bucket as a whole avoids piling on a server that
+		// has already asked us to slow down. See ADR-002 section 3 "API failure
+		// behavior" and `githubRepoFetcher.ts` for the public-API analogue.
+		if (Date.now() < this._rateLimitBackoffUntil) {
+			const remainingSec = Math.ceil((this._rateLimitBackoffUntil - Date.now()) / 1000);
+			this.logService.debug(`[DefaultAccount] Skipping request to ${url} — rate-limit backoff active for ${remainingSec}s more`);
+			return undefined;
+		}
+
 		let lastResponse: IRequestContext | undefined;
 
 		for (const session of sessions) {
@@ -806,6 +1003,12 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 				}, token);
 
 				const status = response.res.statusCode;
+				if (this.isRateLimited(response)) {
+					const retryAfterSec = retryAfterFromHeaders(response.res.headers) ?? 60;
+					this._rateLimitBackoffUntil = Date.now() + retryAfterSec * 1000;
+					this.logService.warn(`[DefaultAccount] Rate limited by ${url} (status ${status}); backing off for ${retryAfterSec}s`);
+					return response;
+				}
 				if (status === 401 || status === 404) {
 					this.logService.debug(`[DefaultAccount] Received ${status} for URL ${url} with session ${session.id}, likely due to expired/revoked token or insufficient permissions.`, 'Trying next session if available.');
 					lastResponse = response;
@@ -878,6 +1081,22 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 		}
 
 		return this.defaultAccountConfig.mcpRegistryDataUrl;
+	}
+
+	private getManagedSettingsUrl(): string | undefined {
+		if (this.getDefaultAccountAuthenticationProvider().enterprise) {
+			try {
+				const enterpriseUrl = this.getEnterpriseUrl();
+				if (!enterpriseUrl) {
+					return undefined;
+				}
+				return `${enterpriseUrl.protocol}//api.${enterpriseUrl.hostname}${enterpriseUrl.port ? ':' + enterpriseUrl.port : ''}/copilot_internal/managed_settings`;
+			} catch (error) {
+				this.logService.error(error);
+			}
+		}
+
+		return this.defaultAccountConfig.managedSettingsUrl;
 	}
 
 	getDefaultAccountAuthenticationProvider(): IDefaultAccountAuthenticationProvider {

@@ -872,6 +872,18 @@ configurationRegistry.registerConfiguration({
 			markdownDescription: nls.localize('chat.pluginLocations', "Plugin directories to discover. Each key is a path that points directly to a plugin folder, and the value enables (`true`) or disables (`false`) it. Paths can be absolute, relative to the workspace root, or start with `~/` for the user's home directory."),
 			scope: ConfigurationScope.MACHINE,
 			tags: ['experimental'],
+			policy: {
+				name: 'ChatEnabledPlugins',
+				category: PolicyCategory.InteractiveSession,
+				minimumVersion: '1.122',
+				value: (policyData) => policyData.enabledPlugins ? JSON.stringify(policyData.enabledPlugins) : undefined,
+				localization: {
+					description: {
+						key: 'chat.pluginLocations.policy',
+						value: nls.localize('chat.pluginLocations.policy', "Enterprise-managed plugin enablement. Keys are plugin IDs in `<plugin>@<marketplace>` form; values enable or disable the plugin. Merged with user-configured entries."),
+					}
+				},
+			},
 		},
 		[ChatConfiguration.PluginMarketplaces]: {
 			type: 'array',
@@ -882,6 +894,38 @@ configurationRegistry.registerConfiguration({
 			default: ['github/copilot-plugins', 'github/awesome-copilot#marketplace'],
 			scope: ConfigurationScope.APPLICATION,
 			tags: ['experimental'],
+			policy: {
+				name: 'ChatPluginMarketplaces',
+				category: PolicyCategory.InteractiveSession,
+				minimumVersion: '1.122',
+				value: (policyData) => policyData.extraKnownMarketplaces ? JSON.stringify(policyData.extraKnownMarketplaces) : undefined,
+				localization: {
+					description: {
+						key: 'chat.plugins.marketplaces.policy',
+						value: nls.localize('chat.plugins.marketplaces.policy', "Enterprise-managed list of plugin marketplaces to query. Entries are GitHub shorthand (`owner/repo[#ref]`) or Git URIs (`<url>[#ref]`). Merged with user-configured entries."),
+					}
+				},
+			},
+		},
+		[ChatConfiguration.StrictMarketplaces]: {
+			type: 'boolean',
+			description: nls.localize('chat.plugins.strictMarketplaces', "When enabled, only marketplaces listed in {0} are trusted. Plugins from any other marketplace will not load.", `\`#${ChatConfiguration.PluginMarketplaces}#\``),
+			default: false,
+			restricted: true,
+			scope: ConfigurationScope.APPLICATION,
+			tags: ['experimental'],
+			policy: {
+				name: 'ChatStrictMarketplaces',
+				category: PolicyCategory.InteractiveSession,
+				minimumVersion: '1.122',
+				value: (policyData) => policyData.strictKnownMarketplaces,
+				localization: {
+					description: {
+						key: 'chat.plugins.strictMarketplaces.policy',
+						value: nls.localize('chat.plugins.strictMarketplaces.policy', "When enabled by enterprise policy, only marketplaces listed in `chat.plugins.marketplaces` are trusted; plugins from any other marketplace will not load."),
+					}
+				},
+			},
 		},
 		[ChatConfiguration.AgentEnabled]: {
 			type: 'boolean',

@@ -411,7 +411,23 @@ export class PluginMarketplaceService extends Disposable implements IPluginMarke
 			return [];
 		}
 
-		const configuredRefs = this._configurationService.getValue<unknown[]>(ChatConfiguration.PluginMarketplaces) ?? [];
+		// Read user + policy + default values separately and dedup-concat so
+		// enterprise policy entries (via the `ChatPluginMarketplaces` policy)
+		// are added alongside user-configured entries AND the built-in
+		// marketplace defaults (e.g. `github/copilot-plugins`). `getValue()`
+		// alone would surface only the policy value when the policy is set
+		// — see ADR-002.
+		const inspected = this._configurationService.inspect<unknown[]>(ChatConfiguration.PluginMarketplaces);
+		const seen = new Set<string>();
+		const configuredRefs: unknown[] = [];
+		for (const entry of [...(inspected.defaultValue ?? []), ...(inspected.userValue ?? []), ...(inspected.policyValue ?? [])]) {
+			const key = typeof entry === 'string' ? entry : JSON.stringify(entry);
+			if (seen.has(key)) {
+				continue;
+			}
+			seen.add(key);
+			configuredRefs.push(entry);
+		}
 		const configRefs = parseMarketplaceReferences(configuredRefs);
 
 		// Merge marketplace references from Claude workspace settings.
@@ -606,6 +622,17 @@ export class PluginMarketplaceService extends Disposable implements IPluginMarke
 	}
 
 	isMarketplaceTrusted(ref: IMarketplaceReference): boolean {
+		// In strict mode (enterprise policy `ChatStrictMarketplaces` or
+		// user-set `chat.plugins.strictMarketplaces`), trust is derived from
+		// the configured marketplace list rather than from user-stored trust.
+		// Only marketplaces present in `chat.plugins.marketplaces` (merged
+		// user + policy) are considered trusted.
+		if (this._configurationService.getValue<boolean>(ChatConfiguration.StrictMarketplaces)) {
+			const inspected = this._configurationService.inspect<unknown[]>(ChatConfiguration.PluginMarketplaces);
+			const configured = [...(inspected.defaultValue ?? []), ...(inspected.userValue ?? []), ...(inspected.policyValue ?? [])];
+			const refs = parseMarketplaceReferences(configured);
+			return refs.some(r => r.canonicalId === ref.canonicalId);
+		}
 		return this._trustedMarketplacesStore.get().includes(ref.canonicalId);
 	}
 

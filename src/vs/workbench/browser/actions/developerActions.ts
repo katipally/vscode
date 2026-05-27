@@ -780,6 +780,56 @@ class PolicyDiagnosticsAction extends Action2 {
 			content += `*Error retrieving account policy gate info: ${error}*\n\n`;
 		}
 
+		// ADR-002: Enterprise Managed Settings. Surface the resolved endpoint
+		// and the three policy-data fields delivered via `/copilot_internal/managed_settings`
+		// so admins debugging an enterprise rollout don't have to grep the raw
+		// `policyData` blob above.
+		content += '## Managed Settings (ADR-002)\n\n';
+		try {
+			const managedSettingsUrl = productService.defaultChatAgent?.managedSettingsUrl;
+			const policyData = defaultAccountService.policyData;
+			const enabledPlugins = policyData?.enabledPlugins;
+			const extraKnownMarketplaces = policyData?.extraKnownMarketplaces;
+			const strictKnownMarketplaces = policyData?.strictKnownMarketplaces;
+			const pluginCount = enabledPlugins ? Object.keys(enabledPlugins).length : 0;
+			const marketplaceCount = extraKnownMarketplaces?.length ?? 0;
+
+			content += '| Property | Value |\n';
+			content += '|----------|-------|\n';
+			content += `| Configured URL (non-enterprise) | \`${managedSettingsUrl ?? '*not set in product.json*'}\` |\n`;
+			content += `| Note | Enterprise accounts override the URL with \`<enterprise>/copilot_internal/managed_settings\` at fetch time. |\n`;
+			content += `| Fetch outcome (this session) | ${policyData ? 'See policyData fields below; cache refreshes hourly.' : 'No account-side policy data resolved yet.'} |\n`;
+			content += `| \`enabledPlugins\` count | ${pluginCount} ${pluginCount > 0 ? '(merged into `chat.pluginLocations` via `ChatEnabledPlugins` policy)' : '(no enterprise-enabled plugins)'} |\n`;
+			content += `| \`extraKnownMarketplaces\` count | ${marketplaceCount} ${marketplaceCount > 0 ? '(merged into `chat.plugins.marketplaces` via `ChatPluginMarketplaces` policy)' : '(no enterprise marketplaces)'} |\n`;
+			content += `| \`strictKnownMarketplaces\` | ${strictKnownMarketplaces === undefined ? '*unset*' : `\`${strictKnownMarketplaces}\``} ${strictKnownMarketplaces === true ? '(strict mode active — only marketplaces in `chat.plugins.marketplaces` are trusted)' : ''} |\n`;
+			content += '\n';
+
+			if (enabledPlugins && pluginCount > 0) {
+				content += '### `enabledPlugins` (from `/copilot_internal/managed_settings`)\n\n';
+				content += '| Plugin ID | Enabled |\n';
+				content += '|-----------|---------|\n';
+				for (const [id, enabled] of Object.entries(enabledPlugins)) {
+					content += `| \`${id}\` | \`${enabled}\` |\n`;
+				}
+				content += '\n';
+			}
+
+			if (extraKnownMarketplaces && marketplaceCount > 0) {
+				content += '### `extraKnownMarketplaces` (from `/copilot_internal/managed_settings`)\n\n';
+				for (const m of extraKnownMarketplaces) {
+					content += `- \`${m}\`\n`;
+				}
+				content += '\n';
+			}
+
+			content += '**Legend**\n\n';
+			content += '- Delivered by `AccountPolicyService` via the existing `policy.value(policyData)` callback flow.\n';
+			content += '- Fetched in `DefaultAccountService.requestManagedSettings` (5s timeout, silent fallback on failure per ADR-002 section 3).\n';
+			content += '- All `/copilot_internal/*` calls share a `Retry-After`-aware backoff so a 429 on one path pauses the others too.\n\n';
+		} catch (error) {
+			content += `*Error rendering managed settings diagnostics: ${error}*\n\n`;
+		}
+
 		content += '## Policy-Controlled Settings\n\n';
 
 		const policyConfigurations = configurationRegistry.getPolicyConfigurations();
