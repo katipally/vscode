@@ -203,6 +203,7 @@ export class DefaultAccountService extends Disposable implements IDefaultAccount
 	get copilotTokenInfo(): ICopilotTokenInfo | null { return this.defaultAccountProvider?.copilotTokenInfo ?? null; }
 
 	get managedSettingsFetchStatus(): number | 'ok' | 'no-url' | 'no-response' | 'parse-error' | null { return this.defaultAccountProvider?.managedSettingsFetchStatus ?? null; }
+	get managedSettingsFetchedAt(): number | null { return this.defaultAccountProvider?.managedSettingsFetchedAt ?? null; }
 
 	private readonly initBarrier = new Barrier();
 
@@ -340,6 +341,7 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 
 	private _managedSettingsFetchStatus: number | 'ok' | 'no-url' | 'no-response' | 'parse-error' | null = null;
 	get managedSettingsFetchStatus(): number | 'ok' | 'no-url' | 'no-response' | 'parse-error' | null { return this._managedSettingsFetchStatus; }
+	get managedSettingsFetchedAt(): number | null { return this._policyData?.managedSettingsFetchedAt ?? null; }
 
 	private readonly _onDidChangeDefaultAccount = this._register(new Emitter<IDefaultAccount | null>());
 	readonly onDidChangeDefaultAccount = this._onDidChangeDefaultAccount.event;

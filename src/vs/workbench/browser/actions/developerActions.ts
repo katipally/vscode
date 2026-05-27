@@ -796,6 +796,8 @@ class PolicyDiagnosticsAction extends Action2 {
 				fetchStatusDisplay = `\`${fetchStatus}\``;
 			}
 			content += `| Last fetch | ${fetchStatusDisplay} |\n`;
+			const fetchedAt = defaultAccountService.managedSettingsFetchedAt;
+			content += `| Fetched at | ${fetchedAt ? new Date(fetchedAt).toLocaleString() : '*n/a*'} |\n`;
 			content += '\n';
 
 			const managedSettingsData = {

@@ -294,6 +294,7 @@ export async function withAsyncTestCodeEditorAndInlineCompletionsModel<T>(
 					copilotTokenInfo: null,
 					onDidChangeCopilotTokenInfo: Event.None,
 					managedSettingsFetchStatus: null,
+					managedSettingsFetchedAt: null,
 					getDefaultAccount: async () => null,
 					setDefaultAccountProvider: () => { },
 					getDefaultAccountAuthenticationProvider: () => { return { id: 'mockProvider', name: 'Mock Provider', enterprise: false }; },
