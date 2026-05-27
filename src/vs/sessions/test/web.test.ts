@@ -129,6 +129,7 @@ class MockDefaultAccountService implements IDefaultAccountService {
 	readonly currentDefaultAccount: IDefaultAccount | null = MOCK_ACCOUNT;
 	readonly copilotTokenInfo: ICopilotTokenInfo | null = null;
 	readonly onDidChangeCopilotTokenInfo = Event.None;
+	readonly managedSettingsFetchStatus: null = null;
 
 	async getDefaultAccount(): Promise<IDefaultAccount | null> { return MOCK_ACCOUNT; }
 	getDefaultAccountAuthenticationProvider(): IDefaultAccountAuthenticationProvider { return MOCK_ACCOUNT.authenticationProvider; }

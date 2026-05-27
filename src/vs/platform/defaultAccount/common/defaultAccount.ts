@@ -23,6 +23,8 @@ export interface IDefaultAccountProvider {
 	readonly onDidChangePolicyData: Event<IPolicyData | null>;
 	readonly copilotTokenInfo: ICopilotTokenInfo | null;
 	readonly onDidChangeCopilotTokenInfo: Event<ICopilotTokenInfo | null>;
+	/** HTTP status code from the last managed-settings fetch, `'ok'` on success, or `null` if never fetched. */
+	readonly managedSettingsFetchStatus: number | 'ok' | 'no-url' | 'no-response' | 'parse-error' | null;
 	getDefaultAccountAuthenticationProvider(): IDefaultAccountAuthenticationProvider;
 
 	/**
@@ -49,6 +51,8 @@ export interface IDefaultAccountService {
 	readonly currentDefaultAccount: IDefaultAccount | null;
 	readonly copilotTokenInfo: ICopilotTokenInfo | null;
 	readonly onDidChangeCopilotTokenInfo: Event<ICopilotTokenInfo | null>;
+	/** HTTP status code from the last managed-settings fetch, `'ok'` on success, or `null` if never fetched. */
+	readonly managedSettingsFetchStatus: number | 'ok' | 'no-url' | 'no-response' | 'parse-error' | null;
 	getDefaultAccount(): Promise<IDefaultAccount | null>;
 	getDefaultAccountAuthenticationProvider(): IDefaultAccountAuthenticationProvider;
 	setDefaultAccountProvider(provider: IDefaultAccountProvider): void;

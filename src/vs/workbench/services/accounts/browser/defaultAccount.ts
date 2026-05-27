@@ -202,6 +202,8 @@ export class DefaultAccountService extends Disposable implements IDefaultAccount
 	get policyData(): IPolicyData | null { return this.defaultAccountProvider?.policyData ?? null; }
 	get copilotTokenInfo(): ICopilotTokenInfo | null { return this.defaultAccountProvider?.copilotTokenInfo ?? null; }
 
+	get managedSettingsFetchStatus(): number | 'ok' | 'no-url' | 'no-response' | 'parse-error' | null { return this.defaultAccountProvider?.managedSettingsFetchStatus ?? null; }
+
 	private readonly initBarrier = new Barrier();
 
 	private readonly _onDidChangeDefaultAccount = this._register(new Emitter<IDefaultAccount | null>());
@@ -335,6 +337,9 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 
 	private _copilotTokenInfo: ICopilotTokenInfo | null = null;
 	get copilotTokenInfo(): ICopilotTokenInfo | null { return this._copilotTokenInfo; }
+
+	private _managedSettingsFetchStatus: number | 'ok' | 'no-url' | 'no-response' | 'parse-error' | null = null;
+	get managedSettingsFetchStatus(): number | 'ok' | 'no-url' | 'no-response' | 'parse-error' | null { return this._managedSettingsFetchStatus; }
 
 	private readonly _onDidChangeDefaultAccount = this._register(new Emitter<IDefaultAccount | null>());
 	readonly onDidChangeDefaultAccount = this._onDidChangeDefaultAccount.event;
@@ -901,6 +906,7 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 		const managedSettingsUrl = this.getManagedSettingsUrl();
 		if (!managedSettingsUrl) {
 			this.logService.debug('[DefaultAccount] No managed settings URL configured; skipping enterprise policy fetch');
+			this._managedSettingsFetchStatus = 'no-url';
 			return undefined;
 		}
 
@@ -908,6 +914,7 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 		const response = await this.request(managedSettingsUrl, 'GET', undefined, sessions, CancellationToken.None, 'defaultAccount.managedSettings', MANAGED_SETTINGS_REQUEST_TIMEOUT_MS);
 		if (!response) {
 			this.logService.debug('[DefaultAccount] Managed settings fetch returned no response (network error, all sessions rejected, or active rate-limit backoff); falling back to local-only policy');
+			this._managedSettingsFetchStatus = 'no-response';
 			return undefined;
 		}
 
@@ -915,6 +922,7 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 		// operating normally" — silent fallback, no policy.
 		if (!isSuccess(response)) {
 			this.logService.warn(`[DefaultAccount] Managed settings fetch returned non-success status ${response.res.statusCode}; falling back to local-only policy`);
+			this._managedSettingsFetchStatus = response.res.statusCode ?? 0;
 			return undefined;
 		}
 
@@ -932,9 +940,11 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 			} else {
 				this.logService.info(`[DefaultAccount] Managed settings applied: ${pluginCount} enabled plugins, ${marketplaceCount} extra marketplaces, strictKnownMarketplaces=${adapted.strictKnownMarketplaces ?? 'unset'}`);
 			}
+			this._managedSettingsFetchStatus = 'ok';
 			return adapted;
 		} catch (error) {
 			this.logService.error('[DefaultAccount] Failed to parse managed settings response', getErrorMessage(error));
+			this._managedSettingsFetchStatus = 'parse-error';
 			return undefined;
 		}
 	}
