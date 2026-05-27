@@ -117,6 +117,8 @@ export interface IManagedSettingsResponse {
 		| { readonly source: 'git'; readonly url: string; readonly ref?: string };
 	}>;
 	readonly strictKnownMarketplaces?: boolean;
+	/** Any unknown keys in the response are silently ignored for forward compatibility. */
+	readonly [key: string]: unknown;
 }
 
 /**
@@ -129,15 +131,26 @@ export interface IManagedSettingsResponse {
  * Exported for unit-testing the shape transformation independently of network
  * I/O. Not part of the public service surface.
  */
-export function adaptManagedSettings(response: IManagedSettingsResponse): Partial<IPolicyData> {
+export function adaptManagedSettings(response: IManagedSettingsResponse, onWarn?: (msg: string) => void): Partial<IPolicyData> {
 	let extraKnownMarketplaces: readonly string[] | undefined;
-	if (response.extraKnownMarketplaces) {
+	if (response.extraKnownMarketplaces && typeof response.extraKnownMarketplaces === 'object' && !Array.isArray(response.extraKnownMarketplaces)) {
 		const seen = new Set<string>();
 		const flattened: string[] = [];
-		for (const entry of Object.values(response.extraKnownMarketplaces)) {
-			const ref = entry.source.source === 'github'
-				? `${entry.source.repo}${entry.source.ref ? `#${entry.source.ref}` : ''}`
-				: `${entry.source.url}${entry.source.ref ? `#${entry.source.ref}` : ''}`;
+		for (const [id, entry] of Object.entries(response.extraKnownMarketplaces)) {
+			if (!entry || typeof entry !== 'object' || !entry.source || typeof entry.source !== 'object') {
+				onWarn?.(`[DefaultAccount] Skipping malformed extraKnownMarketplaces entry "${id}": expected { source: { source, repo|url } }`);
+				continue;
+			}
+			const src = entry.source as { source?: string; repo?: string; url?: string; ref?: string };
+			let ref: string | undefined;
+			if (src.source === 'github' && typeof src.repo === 'string') {
+				ref = `${src.repo}${src.ref ? `#${src.ref}` : ''}`;
+			} else if (src.source === 'git' && typeof src.url === 'string') {
+				ref = `${src.url}${src.ref ? `#${src.ref}` : ''}`;
+			} else {
+				onWarn?.(`[DefaultAccount] Skipping extraKnownMarketplaces entry "${id}": unknown source type "${src.source}"`);
+				continue;
+			}
 			if (!seen.has(ref)) {
 				seen.add(ref);
 				flattened.push(ref);
@@ -145,10 +158,16 @@ export function adaptManagedSettings(response: IManagedSettingsResponse): Partia
 		}
 		extraKnownMarketplaces = flattened;
 	}
+
+	let enabledPlugins: Record<string, boolean> | undefined;
+	if (response.enabledPlugins && typeof response.enabledPlugins === 'object' && !Array.isArray(response.enabledPlugins)) {
+		enabledPlugins = response.enabledPlugins;
+	}
+
 	return {
-		enabledPlugins: response.enabledPlugins,
+		enabledPlugins,
 		extraKnownMarketplaces,
-		strictKnownMarketplaces: response.strictKnownMarketplaces,
+		strictKnownMarketplaces: typeof response.strictKnownMarketplaces === 'boolean' ? response.strictKnownMarketplaces : undefined,
 	};
 }
 
@@ -930,7 +949,7 @@ class DefaultAccountProvider extends Disposable implements IDefaultAccountProvid
 
 		try {
 			const data = await asJson<IManagedSettingsResponse>(response);
-			const adapted = adaptManagedSettings(data ?? {});
+			const adapted = adaptManagedSettings(data ?? {}, msg => this.logService.warn(msg));
 			// An empty response (`{}`) is a successful "no policy file present" signal.
 			// Log a structured outcome at debug so a developer using Policy
 			// Diagnostics has a clear breadcrumb.

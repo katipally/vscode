@@ -91,4 +91,38 @@ suite('DefaultAccount.adaptManagedSettings', () => {
 			strictKnownMarketplaces: true,
 		});
 	});
+
+	test('resilience: unknown top-level keys are silently ignored', () => {
+		const result = adaptManagedSettings({
+			enabledPlugins: { 'p@m': true },
+			strictKnownMarketplaces: false,
+			joshsFakeSetting: true,
+		} as IManagedSettingsResponse);
+		assert.deepStrictEqual(result, {
+			enabledPlugins: { 'p@m': true },
+			extraKnownMarketplaces: undefined,
+			strictKnownMarketplaces: false,
+		});
+	});
+
+	test('resilience: malformed extraKnownMarketplaces entry is skipped, valid entries still processed', () => {
+		const warnings: string[] = [];
+		const result = adaptManagedSettings({
+			extraKnownMarketplaces: {
+				'good': { source: { source: 'github', repo: 'a/b' } },
+				'bad-no-source': {} as IManagedSettingsResponse['extraKnownMarketplaces'] extends Record<string, infer V> ? V : never,
+				'bad-unknown-type': { source: { source: 'ftp', url: 'ftp://x' } } as IManagedSettingsResponse['extraKnownMarketplaces'] extends Record<string, infer V> ? V : never,
+			},
+		} as IManagedSettingsResponse, msg => warnings.push(msg));
+		assert.deepStrictEqual(result.extraKnownMarketplaces, ['a/b']);
+		assert.strictEqual(warnings.length, 2);
+	});
+
+	test('resilience: extraKnownMarketplaces as a string array (wrong format) yields empty array, no throw', () => {
+		const result = adaptManagedSettings({
+			extraKnownMarketplaces: ['https://plugins.acme.com'] as unknown as IManagedSettingsResponse['extraKnownMarketplaces'],
+		} as IManagedSettingsResponse);
+		// Array is not an object-record — treated as missing, so yields undefined
+		assert.strictEqual(result.extraKnownMarketplaces, undefined);
+	});
 });
