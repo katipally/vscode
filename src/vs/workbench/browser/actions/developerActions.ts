@@ -798,8 +798,13 @@ class PolicyDiagnosticsAction extends Action2 {
 			content += `| Last fetch | ${fetchStatusDisplay} |\n`;
 			content += '\n';
 
+			const managedSettingsData = {
+				enabledPlugins: policyData?.enabledPlugins,
+				extraKnownMarketplaces: policyData?.extraKnownMarketplaces,
+				strictKnownMarketplaces: policyData?.strictKnownMarketplaces,
+			};
 			content += '```json\n';
-			content += JSON.stringify(policyData, null, 2) ?? 'null';
+			content += JSON.stringify(managedSettingsData, null, 2);
 			content += '\n```\n\n';
 		} catch (error) {
 			content += `*Error rendering managed settings diagnostics: ${error}*\n\n`;
