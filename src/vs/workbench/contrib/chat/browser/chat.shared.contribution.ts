@@ -872,6 +872,13 @@ configurationRegistry.registerConfiguration({
 			markdownDescription: nls.localize('chat.pluginLocations', "Plugin directories to discover. Each key is a path that points directly to a plugin folder, and the value enables (`true`) or disables (`false`) it. Paths can be absolute, relative to the workspace root, or start with `~/` for the user's home directory."),
 			scope: ConfigurationScope.MACHINE,
 			tags: ['experimental'],
+		},
+		[ChatConfiguration.EnabledPlugins]: {
+			type: 'object',
+			additionalProperties: { type: 'boolean' },
+			markdownDescription: nls.localize('chat.plugins.enabledPlugins', "Enterprise-managed plugin enablement. Keys are plugin IDs in `<plugin>@<marketplace>` form; values enable (`true`) or disable (`false`) the plugin. Merged with entries from {0}.", `\`#${ChatConfiguration.PluginLocations}#\``),
+			scope: ConfigurationScope.APPLICATION,
+			tags: ['experimental'],
 			policy: {
 				name: 'ChatEnabledPlugins',
 				category: PolicyCategory.InteractiveSession,
@@ -879,8 +886,8 @@ configurationRegistry.registerConfiguration({
 				value: (policyData) => policyData.enabledPlugins ? JSON.stringify(policyData.enabledPlugins) : undefined,
 				localization: {
 					description: {
-						key: 'chat.pluginLocations.policy',
-						value: nls.localize('chat.pluginLocations.policy', "Enterprise-managed plugin enablement. Keys are plugin IDs in `<plugin>@<marketplace>` form; values enable or disable the plugin. Merged with user-configured entries."),
+						key: 'chat.plugins.enabledPlugins.policy',
+						value: nls.localize('chat.plugins.enabledPlugins.policy', "Enterprise-managed plugin enablement. Keys are plugin IDs in `<plugin>@<marketplace>` form; values enable or disable the plugin. Merged with user-configured path entries."),
 					}
 				},
 			},
