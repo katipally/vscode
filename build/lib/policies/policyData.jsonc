@@ -208,14 +208,14 @@
             "included": true
         },
         {
-            "key": "chat.pluginLocations",
+            "key": "chat.plugins.enabledPlugins",
             "name": "ChatEnabledPlugins",
             "category": "InteractiveSession",
             "minimumVersion": "1.122",
             "localization": {
                 "description": {
-                    "key": "chat.pluginLocations.policy",
-                    "value": "Enterprise-managed plugin enablement. Keys are plugin IDs in `<plugin>@<marketplace>` form; values enable or disable the plugin. Merged with user-configured entries."
+                    "key": "chat.plugins.enabledPlugins.policy",
+                    "value": "Enterprise-managed plugin enablement. Keys are plugin IDs in `<plugin>@<marketplace>` form; values enable or disable the plugin. Merged with user-configured path entries."
                 }
             },
             "type": "object",
