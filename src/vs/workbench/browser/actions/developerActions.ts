@@ -783,9 +783,6 @@ class PolicyDiagnosticsAction extends Action2 {
 		content += '## Managed Settings\n\n';
 		try {
 			const policyData = defaultAccountService.policyData;
-			const enabledPlugins = policyData?.enabledPlugins;
-			const extraKnownMarketplaces = policyData?.extraKnownMarketplaces;
-			const strictKnownMarketplaces = policyData?.strictKnownMarketplaces;
 
 			content += '| Property | Value |\n';
 			content += '|----------|-------|\n';
@@ -799,28 +796,11 @@ class PolicyDiagnosticsAction extends Action2 {
 				fetchStatusDisplay = `\`${fetchStatus}\``;
 			}
 			content += `| Last fetch | ${fetchStatusDisplay} |\n`;
-			content += `| \`enabledPlugins\` | ${enabledPlugins ? Object.keys(enabledPlugins).length : 0} |\n`;
-			content += `| \`extraKnownMarketplaces\` | ${extraKnownMarketplaces?.length ?? 0} |\n`;
-			content += `| \`strictKnownMarketplaces\` | ${strictKnownMarketplaces === undefined ? '*unset*' : `\`${strictKnownMarketplaces}\``} |\n`;
 			content += '\n';
 
-			if (enabledPlugins && Object.keys(enabledPlugins).length > 0) {
-				content += '### `enabledPlugins`\n\n';
-				content += '| Plugin ID | Enabled |\n';
-				content += '|-----------|---------|\n';
-				for (const [id, enabled] of Object.entries(enabledPlugins)) {
-					content += `| \`${id}\` | \`${enabled}\` |\n`;
-				}
-				content += '\n';
-			}
-
-			if (extraKnownMarketplaces && extraKnownMarketplaces.length > 0) {
-				content += '### `extraKnownMarketplaces`\n\n';
-				for (const m of extraKnownMarketplaces) {
-					content += `- \`${m}\`\n`;
-				}
-				content += '\n';
-			}
+			content += '```json\n';
+			content += JSON.stringify(policyData, null, 2) ?? 'null';
+			content += '\n```\n\n';
 		} catch (error) {
 			content += `*Error rendering managed settings diagnostics: ${error}*\n\n`;
 		}
