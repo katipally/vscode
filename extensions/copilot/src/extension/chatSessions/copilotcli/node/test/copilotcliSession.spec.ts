@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import type { Session, SessionOptions } from '@github/copilot/sdk';
+import type { SessionOptions } from '@github/copilot/sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatParticipantToolToken, ChatResponseStream } from 'vscode';
 import { ConfigKey, IConfigurationService } from '../../../../../platform/configuration/common/configurationService';
@@ -32,6 +32,7 @@ import { NullICopilotCLIImageSupport } from './testHelpers';
 import { MockGitService } from '../../../../../platform/ignore/node/test/mockGitService';
 import { NullTelemetryService } from '../../../../../platform/telemetry/common/nullTelemetryService';
 import type { ITelemetryService, TelemetryEventMeasurements, TelemetryEventProperties } from '../../../../../platform/telemetry/common/telemetry';
+import { Session } from '../../common/utils';
 
 vi.mock('../cliHelpers', async (importOriginal) => ({
 	...(await importOriginal<typeof import('../cliHelpers')>()),
